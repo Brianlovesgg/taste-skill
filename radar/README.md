@@ -29,10 +29,18 @@ LSE-Kurse kommen in Pence (GBp).
 
 ## Aktualisierung
 
-Eine Warteschlange mit drei Prioritäten:
-1. Detailansicht
-2. sichtbarer Markt, alle 60 s bei offener Börse, sonst alle 20 min
-3. übrige Märkte, alle 5 min bei offener Börse, sonst stündlich
+Bei offener Börse gilt pro Kurs ein Höchstalter:
 
-Es laufen maximal 4 Abrufe gleichzeitig, davon höchstens 1 im Hintergrund. Ist IBKR überlastet, pausiert die Warteschlange.
-Fehlt die Freigabe für IBKR, stoppt sie ganz. Ist der Tab verborgen, finden keine Abrufe statt.
+| Was | Höchstalter |
+|---|---|
+| geöffnetes Unternehmen (Detailansicht) | 10 s |
+| sichtbare Karten | 15 s |
+| übriger sichtbarer Markt | 60 s |
+| andere Märkte (Börsenleiste) | 5 min |
+| geschlossene Börse | 20 min |
+
+Die Schleife prüft alle 5 s. Antwortet IBKR langsam, verlängern sich alle Intervalle bis Faktor 4 und erholen sich bei Erfolg wieder.
+Jede Karte zeigt das Alter ihres Kurses und „veraltet“, wenn es das Doppelte des Höchstalters überschreitet.
+Es laufen maximal 4 Abrufe parallel, davon 1 für den Hintergrund. Ohne IBKR-Freigabe stoppt die Schleife. Ist der Tab verborgen, ruht sie.
+
+Grenze: „Aktuell“ heißt aktuell abgerufen. Ob ein Kurs Echtzeit oder ca. 15 Min. verzögert ist, bestimmt das Marktdaten-Abo im IBKR-Konto.

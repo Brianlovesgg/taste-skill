@@ -381,6 +381,8 @@
   const queues = [[], [], []];
   const tasks = new Map();
   let running = 0, runningBg = 0, pausedUntil = 0, pumpTimer = 0, blocked = false;
+  // Refresh intervals stretch by this factor while IBKR is overloaded, and recover on success.
+  let slow = 1;
   const MAX = 4;
   function enqueue(prio, key, fn) {
     const t = tasks.get(key);
@@ -415,7 +417,10 @@
       running++;
       if (bg) runningBg++;
       t.fn().catch((e) => {
-        if (e?.code === 'server_unavailable' || e?.code === 'rate_limited') pausedUntil = Date.now() + (e.retryAfterMs || 6000 + Math.random() * 4000);
+        if (e?.code === 'server_unavailable' || e?.code === 'rate_limited') {
+          pausedUntil = Date.now() + (e.retryAfterMs || 6000 + Math.random() * 4000);
+          slow = Math.min(4, slow * 1.5);
+        }
         if (AUTHZ.has(e?.code)) blocked = true;
       }).finally(() => {
         running--;
@@ -495,7 +500,7 @@
     const tries = routes[it.key] ? [routes[it.key]] : [...new Set(['SMART', it.listing].filter(Boolean))];
     let q = null;
     for (const ex of tries) {
-      const p = await call('get_price_snapshot', { contract_id: it.id, exchange: ex, market_data_names: BASE }, { staleTime: 15000 });
+      const p = await call('get_price_snapshot', { contract_id: it.id, exchange: ex, market_data_names: BASE }, { staleTime: 5000 });
       q = parseBase(p);
       if (usable(q)) {
         if (routes[it.key] !== ex) { routes[it.key] = ex; store.set('routes', routes); }
@@ -520,6 +525,7 @@
     const old = quotes.get(it.key);
     q.prevLast = old?.last;
     q.at = Date.now();
+    slow = Math.max(1, slow * 0.97);
     quotes.set(it.key, q);
     schedule();
   }
@@ -546,20 +552,36 @@
   }
 
   // ---------------------------------------------------------------- refresh loop (24/7)
+  // How old a quote may get before it is fetched again. Visible and opened quotes refresh fastest.
+  const onScreen = new Set();
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) { const k = e.target.dataset.key; if (e.isIntersecting) onScreen.add(k); else onScreen.delete(k); }
+  }, { rootMargin: '200px 0px' });
+  function targetAge(it) {
+    const open = sessions.get(it.m.id)?.open;
+    if (!open) return 20 * 60e3;
+    const base = openItem === it ? 10e3 : onScreen.has(it.key) ? 15e3 : it.m.id === active || query ? 60e3 : 5 * 60e3;
+    return base * slow;
+  }
+  function ageText(ms) { const s = Math.round(ms / 1000); return s < 60 ? `vor ${s} s` : s < 3600 ? `vor ${Math.round(s / 60)} Min.` : `vor ${Math.round(s / 3600)} Std.`; }
   function tick() {
     refreshSessions();
     renderStrip();
     renderHeader();
     renderLive();
+    schedule();
     if (!mcp || document.hidden || blocked) return;
     const now = Date.now();
     const m = markets.find((x) => x.id === active);
-    const s = sessions.get(m.id);
-    for (const it of m.items) {
+    if (openItem && !skip(openItem, now)) {
+      const q = quotes.get(openItem.key);
+      if (!q || now - q.at > targetAge(openItem)) refresh(openItem, 0);
+    }
+    const shown = query ? visibleItems() : m.items;
+    for (const it of shown) {
       if (skip(it, now)) continue;
       const q = quotes.get(it.key);
-      const maxAge = s.open ? 60e3 : 20 * 60e3;
-      if (!q || now - q.at > maxAge) refresh(it, 1);
+      if (!q || now - q.at > targetAge(it)) refresh(it, 1);
     }
     // Background: keep the strip current. Open markets every 5 min, closed ones once per hour.
     for (const bm of markets) {
@@ -648,7 +670,11 @@
   function renderLive() {
     const open = markets.filter((m) => sessions.get(m.id)?.open);
     const node = $('live');
-    node.replaceChildren(el('span', 'dot' + (open.length ? ' on' : '')), open.length ? `Live · ${open.length} von 7 Börsen offen` : 'Alle Börsen geschlossen · letzte Schlusskurse');
+    const m = markets.find((x) => x.id === active);
+    const last = Math.max(0, ...m.items.map((it) => quotes.get(it.key)?.at || 0));
+    const upd = last ? ` · aktualisiert ${ageText(Date.now() - last)}` : '';
+    const paused = slow > 1.5 ? ' · IBKR ausgelastet, langsamer' : '';
+    node.replaceChildren(el('span', 'dot' + (open.length ? ' on' : '')), (open.length ? `Live · ${open.length} von 7 Börsen offen` : 'Alle Börsen geschlossen · letzte Schlusskurse') + upd + paused);
   }
 
   function visibleItems() {
@@ -716,6 +742,8 @@
     f.append(px, right);
     b.append(h, name, desc, f);
     b.addEventListener('click', () => openDrawer(it));
+    b.dataset.key = it.key;
+    io.observe(b);
     r = { b, px, tag, pill, last: NaN };
     cardEls.set(it.key, r);
     return r;
@@ -732,9 +760,14 @@
     r.last = q.last;
     r.pill.className = 'pill ' + dir(q.pct);
     r.pill.textContent = arrow(q.pct) + fpct(q.pct);
-    const delayed = /DELAYED/.test(q.status);
-    r.tag.textContent = q.isClose || /FROZEN/.test(q.status) ? 'Schlusskurs' : delayed ? 'verzögert' : q.status === 'REALTIME' ? 'Echtzeit' : '';
-    r.tag.className = 'tag' + (delayed ? ' warn' : '');
+    const delayed = /DELAYED/.test(q.status) && !/FROZEN/.test(q.status);
+    const closed = q.isClose || /FROZEN/.test(q.status);
+    const age = Date.now() - q.at;
+    const stale = !closed && age > targetAge(it) * 2 + 15e3;
+    const kind = closed ? 'Schlusskurs' : delayed ? 'verzögert' : q.status === 'REALTIME' ? 'Echtzeit' : '';
+    r.tag.textContent = stale ? `veraltet · ${ageText(age)}` : closed ? kind : `${kind} · ${ageText(age)}`;
+    r.tag.className = 'tag' + (stale || delayed ? ' warn' : '');
+    r.tag.title = `Abgerufen ${new Date(q.at).toLocaleTimeString('de-DE')}` + (Number.isFinite(q.ts) ? ` · letzter Handel ${new Date(q.ts).toLocaleTimeString('de-DE')}` : '');
   }
   function heatBg(p) {
     if (!Number.isFinite(p)) return '#eef2ef';
@@ -964,7 +997,7 @@
   renderHeader();
   renderLive();
   render();
-  setInterval(tick, 20000);
+  setInterval(tick, 5000);
   (async () => {
     mcp = await window.claude?.use?.('mcp');
     if (!mcp) {
