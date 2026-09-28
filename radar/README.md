@@ -63,3 +63,13 @@ Jede Karte zeigt einen Grund in einer Zeile. Die Detailansicht erklärt ihn ausf
 
 Nachrichten sind nicht angebunden. Die konkrete Meldung hinter einer Bewegung nennt die App deshalb nicht.
 Kostenlose Quellen stehen pro Unternehmen als Links bereit: SEC Form 8-K (nur USA), Google News (deutsch und englisch) und die Yahoo-Finance-Seite mit Meldungen.
+
+## Automatische Meldungen (stündlich)
+
+1. Die App legt in der Artifact-Datenbank Anfragen an, bei Farbwechseln sowie bei Eigenbewegungen oder Bewegungen gegen den Markt ab ±1,5 %.
+   Pfad: `requests/<Tag>_<Schlüssel>_<Richtung>`. Höchstens 60 pro Tag und Browser.
+2. Die Claude-Routine „Markt-Radar: Meldungen recherchieren“ läuft werktags stündlich:
+   - bis zu 15 Anfragen pro Lauf
+   - Websuche nur in seriösen Quellen (Unternehmen, Aufsicht, große Finanzmedien)
+   - Ergebnis nach `news/<Schlüssel>`: Überschrift, Zusammenfassung, Quelle, Link, Zeit, oder `status: none`
+3. Die App zeigt die Meldung auf der Karte und in der Detailansicht. Wurde nichts gefunden, steht dort „keine belastbare Meldung“.

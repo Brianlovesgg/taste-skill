@@ -131,6 +131,13 @@
   .why::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; transform: translateY(-1px); }
   .why.up::before { background: var(--up); } .why.down::before { background: var(--down); }
   .why.flip { color: var(--ink); font-weight: 500; }
+  .why .wt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .why.news { color: var(--ink); }
+  .why.news::before { background: var(--accent); border-radius: 2px; }
+  .newsbox { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; font-size: 14px; color: var(--ink); }
+  .newsbox .src { font-size: 12px; color: var(--ink-2); }
+  .newsbox a { color: var(--accent); font-weight: 600; }
+  .newsbox.none, .newsbox.wait { background: var(--surface-2); color: var(--ink-2); }
   .whybox { border-left: 3px solid var(--line); padding: 2px 0 2px 14px; display: grid; gap: 10px; }
   .whybox.up { border-color: var(--up); } .whybox.down { border-color: var(--down); }
   .whybox ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
@@ -272,6 +279,7 @@
   </div>
   <div class="d-sec">
     <h4 id="w-title">Warum diese Farbe?</h4>
+    <div class="newsbox" id="w-news" hidden></div>
     <div class="whybox" id="w-box"><ul id="w-points"></ul><p class="foot" id="w-note"></p></div>
   </div>
   <div class="d-sec">
@@ -557,6 +565,11 @@
     q.at = Date.now();
     slow = Math.max(1, slow * 0.97);
     quotes.set(it.key, q);
+    const flipped = old && d0 !== 'flat' && d1 !== 'flat' && d0 !== d1;
+    if (Number.isFinite(q.pct) && Math.abs(q.pct) >= 1.5) {
+      const k = kind(q, context(it));
+      if (flipped || k === 'own' || k === 'against') requestNews(it, q, flipped ? 'flip' : k);
+    } else if (flipped) requestNews(it, q, 'flip');
     schedule();
   }
   const refresh = (it, prio) => enqueue(prio, 'q:' + it.key, () => fetchQuote(it).then(() => { it.failAt = 0; }, (e) => { it.failAt = Date.now(); throw e; }));
@@ -792,8 +805,9 @@
     r.pill.className = 'pill ' + dir(q.pct);
     r.pill.textContent = arrow(q.pct) + fpct(q.pct);
     const w = shortWhy(it, q);
-    r.why.className = 'why ' + dir(q.pct) + (w.flip ? ' flip' : '');
-    r.why.textContent = w.text;
+    r.why.className = 'why ' + dir(q.pct) + (w.flip ? ' flip' : '') + (w.news ? ' news' : '');
+    r.why.replaceChildren(el('span', 'wt', w.text));
+    r.why.title = w.text;
     const delayed = /DELAYED/.test(q.status) && !/FROZEN/.test(q.status);
     const closed = q.isClose || /FROZEN/.test(q.status);
     const age = Date.now() - q.at;
@@ -869,6 +883,8 @@
   }
   function shortWhy(it, q) {
     if (!Number.isFinite(q.pct)) return { text: '' };
+    const n = todaysNews(it, q);
+    if (n?.status === 'found' && n.headline) return { news: true, text: `Meldung: ${n.headline}` };
     const f = (flips.get(it.key) || []).slice(-1)[0];
     if (f && Date.now() - f.at < 2 * 3600e3) return { flip: true, text: `Seit ${hm(f.at)} im ${f.to === 'up' ? 'Plus' : 'Minus'}, vorher im ${f.to === 'up' ? 'Minus' : 'Plus'}` };
     const up = q.pct > 0;
@@ -901,8 +917,31 @@
       if (openItem === it) renderWhy();
     });
   }
+  function renderNewsBox(it, q) {
+    const box = $('w-news');
+    const n = q ? todaysNews(it, q) : null;
+    const reqd = pendingReq.has(it.key);
+    if (!db) { box.hidden = true; return; }
+    box.hidden = false;
+    if (n?.status === 'found' && n.headline) {
+      box.className = 'newsbox';
+      const src = el('span', 'src', [n.source, n.publishedAt ? new Date(n.publishedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', `recherchiert ${hm(n.checkedAt)}`].filter(Boolean).join(' · '));
+      const parts = [el('b', null, n.headline)];
+      if (n.summary) parts.push(el('span', null, n.summary));
+      parts.push(src);
+      if (/^https:\/\//.test(n.url || '')) { const a = el('a', null, 'Originalquelle öffnen'); a.href = n.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; parts.push(a); }
+      box.replaceChildren(...parts);
+    } else if (n?.status === 'none') {
+      box.className = 'newsbox none';
+      box.replaceChildren(el('span', null, `Keine belastbare Meldung gefunden (geprüft ${hm(n.checkedAt)}). Die Bewegung ist dann oft markt- oder branchengetrieben oder die Meldung ist noch nicht erschienen.`));
+    } else if (reqd) {
+      box.className = 'newsbox wait';
+      box.replaceChildren(el('span', null, 'Recherche nach der Meldung ist angefragt. Das Ergebnis erscheint nach dem nächsten stündlichen Lauf hier.'));
+    } else box.hidden = true;
+  }
   function renderWhy() {
     const it = openItem, q = quotes.get(it.key);
+    renderNewsBox(it, q);
     const box = $('w-box'), ul = $('w-points'), note = $('w-note');
     if (!q || !Number.isFinite(q.pct) || !Number.isFinite(q.last)) {
       $('w-title').textContent = 'Warum diese Farbe?';
@@ -955,7 +994,7 @@
       lines.push(li([`Von der App beobachtet: um ${hm(f.at)} Wechsel ins `, B(f.to === 'up' ? 'Plus' : 'Minus'), `. Zu diesem Zeitpunkt lag der Gesamtmarkt bei Ø ${fpct(fc.mAvg)}` + (fc.sN >= 2 ? `, die Branche bei Ø ${fpct(fc.sAvg)}.` : '.')]));
     }
     ul.replaceChildren(...lines);
-    note.textContent = `Quelle: offizielle Börsenkurse über Interactive Brokers${/DELAYED|FROZEN/.test(q.status) ? ' (ca. 15 Min. verzögert)' : ''}. Nachrichten sind nicht automatisch angebunden, die Quellen darunter führen zu den Meldungen.`;
+    note.textContent = `Quelle: offizielle Börsenkurse über Interactive Brokers${/DELAYED|FROZEN/.test(q.status) ? ' (ca. 15 Min. verzögert)' : ''}. Meldungen recherchiert Claude stündlich für auffällige Bewegungen; die Quellen unten führen direkt zu den Meldungen.`;
   }
 
   // ---------------------------------------------------------------- official sources (free link-outs)
@@ -977,6 +1016,52 @@
     items.push(a(`https://news.google.com/search?q=${encodeURIComponent(`"${it.name}" stock`)}&hl=en-US&gl=US&ceid=US:en`, 'Internationale Nachrichten', 'Google News · englisch'));
     items.push(a(`https://finance.yahoo.com/quote/${encodeURIComponent(yahooSymbol(it))}/news/`, 'Kursseite mit Meldungen', 'Yahoo Finance'));
     box.replaceChildren(...items);
+  }
+
+  // ---------------------------------------------------------------- news via artifact database
+  // The page files requests for striking moves; an hourly Claude routine researches them
+  // and writes news/<key> with headline, source and link. Rows are data, never markup.
+  let db = null, dbReadOnly = false;
+  const news = new Map();
+  const pendingReq = new Set();
+  const requested = new Set();
+  const utcDay = () => new Date().toISOString().slice(0, 10);
+  const safeId = (k) => k.replace(/[^A-Za-z0-9_\-.~:@+]/g, '-');
+  function todaysNews(it, q) {
+    const n = news.get(it.key);
+    if (!n || n.date !== utcDay()) return null;
+    return n.dir && n.dir !== dir(q.pct) && n.status === 'found' ? null : n;
+  }
+  function requestNews(it, q, reason) {
+    if (!db || dbReadOnly) return;
+    const d = dir(q.pct);
+    if (d === 'flat') return;
+    const n = news.get(it.key);
+    if (n && n.date === utcDay() && n.dir === d) return;
+    const id = `${utcDay()}_${safeId(it.key)}_${d}`;
+    if (requested.has(id)) return;
+    // Daily cap per browser keeps the hourly research run small.
+    const cnt = store.get('req.' + utcDay(), 0);
+    if (cnt >= 60) return;
+    store.set('req.' + utcDay(), cnt + 1);
+    requested.add(id);
+    db.doc('requests/' + id).set({
+      key: it.key, name: it.name, ticker: it.t, market: it.m.name, country: it.country, sector: it.sector,
+      pct: Math.round(q.pct * 100) / 100, dir: d, reason, at: new Date().toISOString(), status: 'open',
+    }).catch((e) => { if (e?.code === 'invalid_argument' || e?.code === 'quota_exceeded') dbReadOnly = true; else requested.delete(id); });
+  }
+  function startDb(handle) {
+    db = handle;
+    db.collection('news').onSnapshot((snap) => {
+      news.clear();
+      for (const d of snap.docs) { const v = d.data(); if (v?.key) news.set(v.key, v); }
+      schedule();
+    }, () => {});
+    db.collection('requests').onSnapshot((snap) => {
+      pendingReq.clear();
+      for (const d of snap.docs) { const v = d.data(); if (v?.key && v.date !== 'x') pendingReq.add(v.key); }
+      schedule();
+    }, () => {});
   }
   // ---------------------------------------------------------------- drawer
   function openDrawer(it) {
@@ -1177,6 +1262,7 @@
   render();
   setInterval(tick, 5000);
   (async () => {
+    window.claude?.use?.('db').then((h) => { if (h) startDb(h); });
     mcp = await window.claude?.use?.('mcp');
     if (!mcp) {
       banner('Diese Ansicht kann Interactive Brokers nicht erreichen. Öffne das Markt-Radar in claude.ai mit dem Konto, das mit IBKR verbunden ist. Beschreibungen und Handelszeiten funktionieren trotzdem.', true);
