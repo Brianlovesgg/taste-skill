@@ -1,0 +1,598 @@
+<title>Markt-Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Deliberate single dark look: amber-on-black terminal vernacular. */
+  :root {
+    color-scheme: dark;
+    --bg: #0b0a08;
+    --panel: #13110d;
+    --row: #1a1712;
+    --line: #2a261e;
+    --fg: #ece6da;
+    --muted: #948b7a;
+    --amber: #ffa028;
+    --up: #3fcf8e;
+    --down: #ff5a4f;
+    --flat: #948b7a;
+    --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+    --sans: 'IBM Plex Sans Condensed', 'Arial Narrow', system-ui, sans-serif;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font: 14px/1.4 var(--sans); padding-inline: 16px; padding-block: 16px 32px; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 16px; }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+  h1 { margin: 0; font: 600 22px/1 var(--sans); letter-spacing: .02em; text-wrap: balance; }
+  h1 span { color: var(--amber); }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  select, input[type=text] { background: var(--panel); border: 1px solid var(--line); padding: 6px 8px; font-family: var(--mono); font-size: 13px; }
+  input[type=text] { width: 12ch; text-transform: uppercase; }
+  .btn { background: var(--amber); color: #120c02; border: 0; padding: 6px 12px; font-weight: 600; cursor: pointer; letter-spacing: .04em; }
+  .btn.ghost { background: transparent; color: var(--amber); border: 1px solid var(--amber); }
+  .label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  .banner { border: 1px solid var(--line); border-left: 3px solid var(--amber); background: var(--panel); padding: 10px 12px; }
+  .banner.err { border-left-color: var(--down); }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .summary > div { background: var(--panel); padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+  .big { font: 600 22px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .breadth { display: flex; height: 6px; background: var(--row); }
+  .breadth i { display: block; height: 100%; }
+  .mover { font-family: var(--mono); font-variant-numeric: tabular-nums; display: flex; gap: 10px; align-items: baseline; }
+
+  .tablebox { overflow-x: auto; border: 1px solid var(--line); background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font: 500 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th button { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; letter-spacing: inherit; text-transform: inherit; font: inherit; }
+  th button[aria-pressed=true] { color: var(--amber); }
+  td { padding: 7px 10px; border-bottom: 1px solid #1e1b15; white-space: nowrap; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr.sel { background: var(--row); }
+  tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+  .r { text-align: right; }
+  .sym { color: var(--amber); font-weight: 600; }
+  .desc { color: var(--muted); font-family: var(--sans); font-size: 12px; }
+  .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); } .muted { color: var(--muted); }
+  .arrow { display: inline-block; width: 1.2em; text-align: center; }
+  .pill { font: 500 10px var(--sans); letter-spacing: .08em; padding: 2px 6px; border: 1px solid currentColor; }
+  .pill.REALTIME { color: var(--up); } .pill.DELAYED { color: var(--amber); } .pill.FROZEN, .pill.FROZEN_DELAYED { color: #7fb2ff; } .pill.REJECT, .pill.NONE { color: var(--down); }
+  .range { position: relative; width: 90px; height: 6px; background: var(--row); display: inline-block; vertical-align: middle; }
+  .range i { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--fg); }
+  .rm { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; }
+  .flash { animation: fl .7s ease-out; }
+  @keyframes fl { from { background: rgba(255, 160, 40, .25); } to { background: transparent; } }
+  @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+  .detail { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; display: grid; gap: 10px; }
+  .dhead { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  .periods { display: flex; gap: 4px; margin-left: auto; }
+  .periods button { background: none; border: 1px solid var(--line); color: var(--muted); padding: 2px 8px; cursor: pointer; font: 12px var(--mono); }
+  .periods button[aria-pressed=true] { background: var(--amber); color: #120c02; border-color: var(--amber); }
+  .chart { position: relative; height: 260px; max-width: 100%; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .foot { color: var(--muted); font-size: 12px; max-width: 80ch; }
+  .search-results { display: flex; flex-wrap: wrap; gap: 6px; }
+  .search-results button { background: var(--panel); border: 1px solid var(--line); padding: 4px 8px; cursor: pointer; font: 12px var(--mono); text-align: left; }
+  .search-results button:hover { border-color: var(--amber); }
+  @media (max-width: 640px) { .hide-s { display: none; } h1 { font-size: 20px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span>▲▼</span> Markt-Radar</h1>
+      <div class="sub">Kurse aus deinem Interactive-Brokers-Konto · Aktualisierung alle 30 s</div>
+    </div>
+    <div class="controls">
+      <label class="label" for="wl">Watchlist</label>
+      <select id="wl"><option>Lade…</option></select>
+      <form id="addform" class="controls">
+        <label class="label" for="addsym">Symbol</label>
+        <input id="addsym" type="text" placeholder="SAP" autocomplete="off" spellcheck="false">
+        <button class="btn" type="submit">Suchen</button>
+      </form>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+  <div id="results" class="search-results" hidden></div>
+
+  <section class="summary" aria-label="Zusammenfassung">
+    <div>
+      <span class="label">Marktbreite</span>
+      <span class="big" id="b-count">–</span>
+      <div class="breadth" id="b-bar"></div>
+    </div>
+    <div>
+      <span class="label">Stärkster Anstieg</span>
+      <div class="mover" id="top-up"><span class="muted">–</span></div>
+    </div>
+    <div>
+      <span class="label">Stärkster Rückgang</span>
+      <div class="mover" id="top-down"><span class="muted">–</span></div>
+    </div>
+    <div>
+      <span class="label">Datenstand</span>
+      <span class="big" id="asof">–</span>
+      <span class="foot" id="asof-note">Wird geladen</span>
+    </div>
+  </section>
+
+  <div class="tablebox">
+    <table>
+      <thead>
+        <tr>
+          <th>Wert</th>
+          <th class="r">Letzter</th>
+          <th class="r"><button type="button" id="sort-pct" aria-pressed="true">Δ % ▾</button></th>
+          <th class="r hide-s">Δ</th>
+          <th class="hide-s">Tagesspanne</th>
+          <th class="hide-s">Letzter Trade</th>
+          <th>Daten</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <section class="detail" id="detail" hidden>
+    <div class="dhead">
+      <span class="sym big" id="d-sym"></span>
+      <span class="big" id="d-last"></span>
+      <span id="d-chg"></span>
+      <div class="periods" id="periods" role="group" aria-label="Zeitraum">
+        <button type="button" data-p="ONE_DAY" aria-pressed="true">1T</button>
+        <button type="button" data-p="ONE_WEEK" aria-pressed="false">1W</button>
+        <button type="button" data-p="ONE_MONTH" aria-pressed="false">1M</button>
+        <button type="button" data-p="SIX_MONTHS" aria-pressed="false">6M</button>
+        <button type="button" data-p="ONE_YEAR" aria-pressed="false">1J</button>
+      </div>
+    </div>
+    <div class="chart"><canvas id="cv"></canvas></div>
+    <div class="foot" id="d-note"></div>
+  </section>
+
+  <p class="foot">
+    „Daten“ zeigt, was dein Marktdaten-Abo liefert: <b class="up">REALTIME</b> ist Echtzeit, <b style="color:var(--amber)">DELAYED</b> ist um etwa 15 Minuten verzögert, <b class="down">REJECT</b> heißt, es fehlt ein Abo für diese Börse. Δ bezieht sich auf den Schlusskurs des Vortags. Eine Richtung von jetzt ist keine Prognose für später. Keine Anlageberatung.
+  </p>
+</div>
+
+<script>
+(() => {
+  const SERVER = 'Interactive Brokers';
+  const FIELDS = ['last', 'change', 'high', 'low', 'top_status'];
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('radar.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('radar.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  let mcp = null;
+  let items = [];            // {key, id, exchange, label}
+  const quotes = new Map();  // key -> {last, chg, pct, high, low, status, ts, isClose, err}
+  const unsubs = [];
+  let selected = null;
+  let period = 'ONE_DAY';
+  let sortByPct = true;
+  const secTypes = store.get('secTypes', {});
+
+  // ---------- formatting
+  const dec = (p) => (Math.abs(p) >= 1000 ? 2 : Math.abs(p) >= 1 ? 2 : 4);
+  const fp = (p) => (Number.isFinite(p) ? p.toLocaleString('de-DE', { minimumFractionDigits: dec(p), maximumFractionDigits: dec(p) }) : '–');
+  const fpct = (x) => (Number.isFinite(x) ? (x > 0 ? '+' : '') + x.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %' : '–');
+  const dir = (x) => (!Number.isFinite(x) ? 'muted' : x > 0 ? 'up' : x < 0 ? 'down' : 'flat');
+  const arrow = (x) => (!Number.isFinite(x) ? '·' : x > 0 ? '▲' : x < 0 ? '▼' : '■');
+  const tfmt = (ms) => new Date(ms).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  function errText(e) {
+    switch (e?.code) {
+      case 'needs_reauth': return 'Die Verbindung zu Interactive Brokers ist abgelaufen. Verbinde sie neu unter claude.ai → Einstellungen → Connectors.';
+      case 'server_not_connected': return 'Interactive Brokers ist nicht verbunden. Füge den Connector unter claude.ai → Einstellungen → Connectors hinzu.';
+      case 'selection_required': return 'Du hast mehrere Interactive-Brokers-Connectors. Wähle im Hinweis von claude.ai einen aus.';
+      case 'not_in_manifest': return 'Du hast Interactive Brokers für diese Seite nicht freigegeben. Lade die Seite neu, um die Freigabe zu erteilen.';
+      case 'blocked_by_policy': case 'approval_required': return 'Deine Organisation blockiert diesen Datenabruf.';
+      case 'server_unavailable': case 'rate_limited': return 'Interactive Brokers antwortet gerade nicht. Neuer Versuch mit der nächsten Aktualisierung.';
+      case 'tool_error': return 'IBKR meldet: ' + (e.message || 'Fehler');
+      default: return 'Datenabruf fehlgeschlagen (' + (e?.code || 'unbekannt') + ').';
+    }
+  }
+  const AUTHZ = new Set(['needs_reauth', 'server_not_connected', 'selection_required', 'not_in_manifest', 'blocked_by_policy', 'approval_required', 'not_granted', 'capability_disabled', 'capability_removed']);
+
+  function banner(text, err = false) {
+    const b = $('banner');
+    b.hidden = !text;
+    b.textContent = text || '';
+    b.classList.toggle('err', err);
+  }
+
+  // ---------- parsing
+  function parseSnapshot(p) {
+    const n = (v) => (typeof v === 'number' && v !== 0 ? v : NaN);
+    const last = n(p?.last?.price);
+    const chg = typeof p?.change?.change === 'number' ? p.change.change : NaN;
+    const pct = typeof p?.change?.change_pct === 'number' ? p.change.change_pct : NaN;
+    return {
+      last, chg, pct,
+      high: n(p?.high?.high), low: n(p?.low?.low),
+      status: p?.['top-status']?.status || (Number.isFinite(last) ? 'UNKNOWN' : 'NONE'),
+      ts: p?.last?.ts ? p.last.ts * 1000 : NaN,
+      isClose: !!p?.last?.is_close,
+      halted: !!p?.last?.halted,
+    };
+  }
+  const parseId = (ex) => { const [id, exchange] = String(ex).split('@'); return { id: Number(id), exchange: exchange || undefined }; };
+
+  // ---------- render
+  let raf = 0;
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+  const rowEls = new Map();
+
+  function render() {
+    const list = items.map((it) => ({ it, q: quotes.get(it.key) }));
+    if (sortByPct) list.sort((a, b) => (Number.isFinite(b.q?.pct) ? b.q.pct : -1e9) - (Number.isFinite(a.q?.pct) ? a.q.pct : -1e9));
+    const body = $('rows');
+    const frag = document.createDocumentFragment();
+    for (const { it, q } of list) frag.append(row(it, q));
+    body.replaceChildren(frag);
+
+    const valid = list.filter((x) => Number.isFinite(x.q?.pct));
+    const up = valid.filter((x) => x.q.pct > 0).length;
+    const down = valid.filter((x) => x.q.pct < 0).length;
+    const flat = valid.length - up - down;
+    $('b-count').innerHTML = '';
+    $('b-count').append(el('span', 'up', `${up} ▲`), ' ', el('span', 'down', `${down} ▼`), ' ', el('span', 'flat', `${flat} ■`));
+    const bar = $('b-bar');
+    bar.replaceChildren(...[['up', up], ['flat', flat], ['down', down]].map(([c, v]) => {
+      const i = el('i'); i.style.width = valid.length ? (v / valid.length) * 100 + '%' : '0'; i.style.background = `var(--${c})`; return i;
+    }));
+    const sorted = valid.slice().sort((a, b) => b.q.pct - a.q.pct);
+    mover($('top-up'), sorted[0], (x) => x.q.pct > 0);
+    mover($('top-down'), sorted[sorted.length - 1], (x) => x.q.pct < 0);
+
+    const stamps = list.map((x) => x.q?.fetchedAt).filter(Boolean);
+    if (stamps.length) {
+      const oldest = Math.min(...stamps);
+      $('asof').textContent = new Date(oldest).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const rt = list.filter((x) => x.q?.status === 'REALTIME').length;
+      const dl = list.filter((x) => x.q?.status === 'DELAYED').length;
+      const rej = list.filter((x) => x.q?.status === 'REJECT' || x.q?.status === 'NONE').length;
+      $('asof-note').textContent = `${rt} Echtzeit · ${dl} verzögert · ${rej} ohne Daten`;
+    }
+    if (selected) renderDetailHead();
+  }
+
+  function mover(box, x, ok) {
+    box.replaceChildren();
+    if (!x || !ok(x)) { box.append(el('span', 'muted', '–')); return; }
+    box.append(el('span', 'sym', x.it.label), el('span', null, fp(x.q.last)), el('span', dir(x.q.pct), `${arrow(x.q.pct)} ${fpct(x.q.pct)}`));
+  }
+
+  function row(it, q) {
+    let r = rowEls.get(it.key);
+    if (!r) {
+      const tr = el('tr');
+      tr.tabIndex = 0;
+      const c = {
+        name: el('td'), last: el('td', 'r'), pct: el('td', 'r'), chg: el('td', 'r hide-s'),
+        range: el('td', 'hide-s'), ts: el('td', 'hide-s muted'), st: el('td'), rm: el('td', 'r'),
+      };
+      c.name.append(el('span', 'sym', it.label));
+      if (it.desc && it.desc !== it.label) c.name.append(' ', el('span', 'desc', it.desc));
+      if (it.custom) {
+        const b = el('button', 'rm', '✕');
+        b.type = 'button';
+        b.title = 'Entfernen';
+        b.setAttribute('aria-label', `${it.label} entfernen`);
+        b.addEventListener('click', (e) => { e.stopPropagation(); removeCustom(it.key); });
+        c.rm.append(b);
+      }
+      tr.append(...Object.values(c));
+      const open = () => select(it);
+      tr.addEventListener('click', open);
+      tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+      r = { tr, c, prev: NaN };
+      rowEls.set(it.key, r);
+    }
+    const { c, tr } = r;
+    tr.classList.toggle('sel', selected?.key === it.key);
+    if (!q) { c.last.textContent = '…'; c.st.replaceChildren(el('span', 'muted', 'lädt')); return tr; }
+    if (q.err && !Number.isFinite(q.last)) {
+      c.last.textContent = '–';
+      c.pct.textContent = '';
+      c.st.replaceChildren(el('span', 'pill NONE', 'FEHLER'));
+      c.st.title = errText(q.err);
+      return tr;
+    }
+    c.last.textContent = fp(q.last);
+    if (Number.isFinite(r.prev) && q.last !== r.prev) { c.last.classList.remove('flash'); void c.last.offsetWidth; c.last.classList.add('flash'); }
+    r.prev = q.last;
+    c.pct.className = 'r ' + dir(q.pct);
+    c.pct.replaceChildren(el('span', 'arrow', arrow(q.pct)), fpct(q.pct));
+    c.chg.className = 'r hide-s ' + dir(q.chg);
+    c.chg.textContent = Number.isFinite(q.chg) ? (q.chg > 0 ? '+' : '') + fp(q.chg) : '–';
+    c.range.replaceChildren();
+    if (Number.isFinite(q.high) && Number.isFinite(q.low) && q.high > q.low) {
+      const box = el('span', 'range');
+      box.title = `Tief ${fp(q.low)} · Hoch ${fp(q.high)}`;
+      const m = el('i');
+      m.style.left = `calc(${Math.min(1, Math.max(0, (q.last - q.low) / (q.high - q.low))) * 100}% - 1px)`;
+      box.append(m);
+      c.range.append(box);
+    } else c.range.append(el('span', 'muted', '–'));
+    c.ts.textContent = Number.isFinite(q.ts) ? tfmt(q.ts) + (q.isClose ? ' · Schluss' : '') + (q.halted ? ' · ausgesetzt' : '') : '–';
+    const st = q.status === 'NONE' ? 'KEINE DATEN' : q.status;
+    c.st.replaceChildren(el('span', 'pill ' + q.status, st));
+    c.st.title = q.err ? errText(q.err) + ' (letzter bekannter Wert)' : '';
+    return tr;
+  }
+
+  // ---------- data: watches
+  function clearWatches() { while (unsubs.length) try { unsubs.pop()(); } catch {} }
+
+  function watchAll() {
+    clearWatches();
+    const authzSeen = new Map();
+    for (const it of items) {
+      const input = { contract_id: it.id, market_data_names: FIELDS };
+      if (it.exchange) input.exchange = it.exchange;
+      const off = mcp.watchTool(SERVER, 'get_price_snapshot', input, (ev) => {
+        if (ev.type === 'data') {
+          const q = parseSnapshot(ev.result.payload);
+          q.fetchedAt = ev.result.cache?.storedAt || Date.now();
+          quotes.set(it.key, q);
+          authzSeen.delete(it.key);
+          if (!authzSeen.size) banner('');
+        } else {
+          const e = ev.error;
+          if (AUTHZ.has(e.code)) {
+            quotes.delete(it.key); // denials retract data
+            authzSeen.set(it.key, e.code);
+            if (authzSeen.size === items.length) banner(errText(e), true);
+          } else {
+            const q = quotes.get(it.key) || {};
+            quotes.set(it.key, { ...q, err: e }); // transient: keep last good
+          }
+        }
+        schedule();
+      }, { cache: { staleTime: 25000 }, refetchInterval: 30000 });
+      unsubs.push(off);
+    }
+  }
+
+  async function call(tool, input) {
+    try {
+      return (await mcp.callTool(SERVER, tool, input, { cache: { staleTime: 60000 } })).payload;
+    } catch (e) {
+      if (e?.retryable) {
+        await new Promise((r) => setTimeout(r, (e.retryAfterMs || 1500) + Math.random() * 800));
+        return (await mcp.callTool(SERVER, tool, input)).payload;
+      }
+      throw e;
+    }
+  }
+
+  // ---------- watchlists
+  const customs = () => store.get('custom', []);
+
+  async function loadWatchlists() {
+    const sel = $('wl');
+    let lists = [];
+    try {
+      lists = (await call('get_watchlists', {}))?.watchlists || [];
+    } catch (e) {
+      banner(errText(e), true);
+    }
+    sel.replaceChildren(...lists.map((w) => { const o = el('option', null, w.name); o.value = w.id; return o; }), Object.assign(el('option', null, 'Nur eigene Symbole'), { value: '' }));
+    const saved = store.get('wl', null);
+    const fav = lists.find((w) => w.name === 'Favorites');
+    sel.value = lists.some((w) => w.id === saved) || saved === '' ? saved : fav?.id ?? lists[0]?.id ?? '';
+    await loadList(sel.value);
+  }
+
+  async function loadList(id) {
+    store.set('wl', id);
+    let inst = [];
+    if (id) {
+      try {
+        inst = (await call('get_watchlist', { id }))?.instruments || [];
+      } catch (e) {
+        banner(errText(e), true);
+      }
+    }
+    const seen = new Set();
+    items = [...inst.map((i) => ({ key: i.contract_id_ex, ...parseId(i.contract_id_ex), label: i.contract_description.split(/\s|\(/)[0], desc: i.contract_description })),
+      ...customs().map((c) => ({ ...c, custom: true }))]
+      .filter((i) => Number.isFinite(i.id) && !seen.has(i.key) && seen.add(i.key));
+    quotes.clear();
+    rowEls.clear();
+    if (!items.length) banner('Diese Watchlist ist leer. Suche oben nach einem Symbol, um es hinzuzufügen.');
+    render();
+    watchAll();
+    if (items.length && !selected) select(items[0]);
+  }
+
+  function removeCustom(key) {
+    store.set('custom', customs().filter((c) => c.key !== key));
+    if (selected?.key === key) { selected = null; $('detail').hidden = true; }
+    loadList($('wl').value);
+  }
+
+  // ---------- search / add
+  $('addform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = $('addsym').value.trim();
+    if (!q) return;
+    const box = $('results');
+    box.hidden = false;
+    box.replaceChildren(el('span', 'muted', 'Suche…'));
+    try {
+      const res = (await call('search_contracts', { query: q }))?.results || [];
+      const stk = res.filter((r) => r.underlying_contract_id && r.sections?.some((s) => ['STK', 'IND'].includes(s.security_type))).slice(0, 8);
+      if (!stk.length) { box.replaceChildren(el('span', 'muted', `Keine Aktie zu „${q}“ gefunden.`)); return; }
+      box.replaceChildren(el('span', 'label', 'Hinzufügen:'), ...stk.map((r) => {
+        const b = el('button', null, `${r.symbol} · ${r.exchange} · ${r.description}`);
+        b.type = 'button';
+        b.addEventListener('click', () => {
+          const key = `${r.underlying_contract_id}@${r.exchange}`;
+          const list = customs();
+          if (!list.some((c) => c.key === key)) list.push({ key, id: r.underlying_contract_id, exchange: r.exchange, label: r.symbol, desc: `${r.description} · ${r.exchange}` });
+          store.set('custom', list);
+          secTypes[key] = r.sections.some((s) => s.security_type === 'STK') ? 'STK' : 'IND';
+          store.set('secTypes', secTypes);
+          box.hidden = true;
+          $('addsym').value = '';
+          loadList($('wl').value);
+        });
+        return b;
+      }));
+    } catch (err) {
+      box.replaceChildren(el('span', 'down', errText(err)));
+    }
+  });
+
+  $('wl').addEventListener('change', (e) => { selected = null; $('detail').hidden = true; loadList(e.target.value); });
+  $('sort-pct').addEventListener('click', (e) => {
+    sortByPct = !sortByPct;
+    e.currentTarget.setAttribute('aria-pressed', String(sortByPct));
+    e.currentTarget.textContent = sortByPct ? 'Δ % ▾' : 'Δ %';
+    render();
+  });
+
+  // ---------- detail chart
+  $('periods').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-p]');
+    if (!b) return;
+    period = b.dataset.p;
+    for (const x of $('periods').querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+    loadHistory();
+  });
+
+  function select(it) {
+    selected = it;
+    $('detail').hidden = false;
+    render();
+    loadHistory();
+  }
+
+  function renderDetailHead() {
+    const q = quotes.get(selected.key);
+    $('d-sym').textContent = selected.label;
+    $('d-last').textContent = q ? fp(q.last) : '';
+    const c = $('d-chg');
+    c.className = q ? dir(q.pct) : '';
+    c.textContent = q && Number.isFinite(q.pct) ? `${arrow(q.pct)} ${q.chg > 0 ? '+' : ''}${fp(q.chg)}  ${fpct(q.pct)} seit Vortag` : '';
+  }
+
+  const STEP = { ONE_DAY: 'FIVE_MINS', ONE_WEEK: 'THIRTY_MINS', ONE_MONTH: 'ONE_DAY', SIX_MONTHS: 'ONE_DAY', ONE_YEAR: 'ONE_WEEK' };
+  let histToken = 0;
+  let bars = null;
+
+  async function loadHistory() {
+    const it = selected;
+    const token = ++histToken;
+    $('d-note').textContent = 'Lade Kursverlauf…';
+    bars = null;
+    draw();
+    const types = [secTypes[it.key], 'STK', 'IND', 'FUT'].filter((v, i, a) => v && a.indexOf(v) === i);
+    let lastErr = null;
+    for (const t of types) {
+      const input = { contract_id: it.id, security_type: t, period, step: STEP[period], outside_rth: false };
+      if (it.exchange) input.exchange = it.exchange;
+      try {
+        const p = await call('get_price_history', input);
+        if (token !== histToken) return;
+        if (!p?.time?.length) { lastErr = { code: 'tool_error', message: 'keine Kursdaten für diesen Zeitraum' }; continue; }
+        secTypes[it.key] = t;
+        store.set('secTypes', secTypes);
+        bars = p.time.map((tm, i) => ({ t: Date.parse(tm), c: p.close[i], h: p.high[i], l: p.low[i] }));
+        $('d-note').textContent = `${p.time.length} Kerzen · ${new Date(p.chart_start).toLocaleString('de-DE')} bis ${new Date(p.chart_end).toLocaleString('de-DE')} · nur reguläre Handelszeit`;
+        draw();
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (e.code !== 'tool_error') break;
+      }
+    }
+    if (token === histToken) $('d-note').textContent = 'Kursverlauf nicht verfügbar: ' + errText(lastErr);
+  }
+
+  function draw() {
+    const cv = $('cv');
+    const box = cv.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const w = box.clientWidth, h = box.clientHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!bars || bars.length < 2) return;
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const axis = 70, bottom = 20;
+    const pw = w - axis, ph = h - bottom - 8;
+    let lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
+    const q = quotes.get(selected.key);
+    const prior = q && Number.isFinite(q.last) && Number.isFinite(q.chg) ? q.last - q.chg : NaN;
+    if (period === 'ONE_DAY' && Number.isFinite(prior)) { lo = Math.min(lo, prior); hi = Math.max(hi, prior); }
+    const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+    const x = (i) => (i / (bars.length - 1)) * (pw - 8) + 4;
+    const y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * ph;
+    const first = bars[0].c, lastC = bars[bars.length - 1].c;
+    const col = css(lastC >= (period === 'ONE_DAY' && Number.isFinite(prior) ? prior : first) ? '--up' : '--down');
+
+    ctx.font = `11px ${css('--mono')}`;
+    ctx.fillStyle = css('--muted');
+    ctx.strokeStyle = css('--line');
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const v = lo + ((hi - lo) * i) / 4, yy = Math.round(y(v)) + .5;
+      ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(pw, yy); ctx.stroke();
+      ctx.fillText(fp(v), pw + 6, yy);
+    }
+    ctx.textBaseline = 'alphabetic';
+    const intraday = period === 'ONE_DAY' || period === 'ONE_WEEK';
+    for (let i = 0; i < bars.length; i += Math.max(1, Math.ceil(bars.length / 5))) {
+      const d = new Date(bars[i].t);
+      const lab = period === 'ONE_DAY' ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+        : intraday ? d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit' }) : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: period === 'ONE_YEAR' ? '2-digit' : undefined });
+      ctx.fillText(lab, Math.min(pw - 40, x(i)), h - 4);
+    }
+    if (period === 'ONE_DAY' && Number.isFinite(prior)) {
+      ctx.setLineDash([3, 4]); ctx.strokeStyle = css('--muted');
+      ctx.beginPath(); ctx.moveTo(0, y(prior)); ctx.lineTo(pw, y(prior)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = css('--muted'); ctx.fillText('Vortag', 4, y(prior) - 4);
+    }
+    const grad = ctx.createLinearGradient(0, 8, 0, 8 + ph);
+    grad.addColorStop(0, col + '40'); grad.addColorStop(1, col + '00');
+    ctx.beginPath();
+    bars.forEach((b, i) => (i ? ctx.lineTo(x(i), y(b.c)) : ctx.moveTo(x(i), y(b.c))));
+    ctx.lineTo(x(bars.length - 1), 8 + ph); ctx.lineTo(x(0), 8 + ph); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.beginPath();
+    bars.forEach((b, i) => (i ? ctx.lineTo(x(i), y(b.c)) : ctx.moveTo(x(i), y(b.c))));
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x(bars.length - 1), y(lastC), 3, 0, Math.PI * 2); ctx.fill();
+  }
+  new ResizeObserver(() => draw()).observe($('cv').parentElement);
+
+  // ---------- boot
+  (async () => {
+    mcp = await window.claude?.use?.('mcp');
+    if (!mcp) {
+      banner('Diese Ansicht kann nicht auf Interactive Brokers zugreifen. Öffne das Markt-Radar in claude.ai, angemeldet mit dem Konto, das mit IBKR verbunden ist.', true);
+      $('wl').replaceChildren(el('option', null, 'Nicht verfügbar'));
+      $('asof-note').textContent = 'Keine Verbindung';
+      return;
+    }
+    loadWatchlists();
+  })();
+})();
+</script>
