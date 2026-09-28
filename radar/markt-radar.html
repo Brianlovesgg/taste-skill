@@ -1088,13 +1088,20 @@ window.MARKETS = [
     if (Number.isFinite(q.last) && !Number.isFinite(q.pct)) {
       try {
         const h = await call('get_price_history', { contract_id: it.id, security_type: 'STK', exchange: routes[it.key] || it.listing, step: 'ONE_DAY', step_count: 3, outside_rth: false }, { staleTime: 300000, gcTime: 3600000 });
-        const cl = h?.close || [];
+        const cl = (h?.close || []).filter((v) => Number.isFinite(v) && v > 0);
         if (cl.length >= 2) {
-          const same = Math.abs(cl[cl.length - 1] - q.last) / q.last < 0.0008;
-          const prev = same ? cl[cl.length - 2] : cl[cl.length - 1];
-          q.chg = q.last - prev;
-          q.pct = (q.chg / prev) * 100;
-          q.derived = true;
+          // Snapshot and history can use different units (LSE: pence vs. pounds). Align by powers of 100.
+          const k = Math.round(Math.log10(q.last / cl[cl.length - 1]) / 2) * 2;
+          const scale = Math.abs(Math.log10(q.last / cl[cl.length - 1]) - k) < 0.1 ? 10 ** k : 1;
+          // A frozen snapshot can still carry the previous session's price; the official daily closes win.
+          const last = cl[cl.length - 1] * scale, prev = cl[cl.length - 2] * scale;
+          const pct = ((last - prev) / prev) * 100;
+          if (Math.abs(pct) <= 30) {
+            q.last = last;
+            q.chg = last - prev;
+            q.pct = pct;
+            q.derived = true;
+          }
         }
       } catch { /* keep without change */ }
     }
