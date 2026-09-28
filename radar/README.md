@@ -1,12 +1,38 @@
-# Markt-Radar (IBKR)
+# Markt-Radar
 
-Watchlist mit Richtung (▲▼), Veränderung zum Vortag, Tagesspanne, Datenstatus und Kursverlauf.
-Datenquelle ist das Interactive-Brokers-Konto des Nutzers über den claude.ai-Connector.
+490 Unternehmen an sieben Börsen: USA, Europa, Japan, Korea, Australien, Mexiko und Brasilien.
+Pro Markt die 50 größten Unternehmen und 20 kleinere Wachstumswerte. Jedes Unternehmen hat eine
+Beschreibung. Die wirtschaftliche Lage wird live aus Kursdaten berechnet.
 
-- Läuft als privates claude.ai-Artifact (Capability `mcp`, Server „Interactive Brokers“). Zugangsdaten verlassen claude.ai nie.
-- Außerhalb von claude.ai (z. B. GitHub Pages) zeigt die Seite nur einen Hinweis. Deshalb liegt sie nicht in `terminal/`.
-- Aktualisierung alle 30 s über `watchTool`, pausiert, solange der Tab verborgen ist.
-- Rund 130 Werte in Gruppen: DAX & DE, Dow 30, Nasdaq Top 40, Indizes & Sektoren, Rohstoffe & Zinsen, eigene Watchlist.
-- Symbole werden einmalig per `search_contracts` in IBKR-Contract-IDs aufgelöst und im Browser gespeichert.
-- Deutsche Werte laufen über SMART-Routing: verzögerte Kurse ohne XETRA-Abo (direkt über IBIS: REJECT).
-- Pro Runde (alle 45 s) nur die sichtbare Gruppe, 4 parallele Abrufe. Zusatzdaten (52W, YTD, Vola, Dividende, Ø-Umsatz) alle 15 min.
+Läuft als privates claude.ai-Artifact mit der Capability `mcp` (Server „Interactive Brokers“,
+Tools `search_contracts`, `get_price_snapshot`, `get_price_history`). Die Zugangsdaten verlassen
+claude.ai nie.
+
+## Aufbau
+
+- `src/companies.js`: Märkte, Handelszeiten, Unternehmen (Ticker, Name, Branche, Beschreibung, Land, Such-Aliase)
+- `src/app.html`: Oberfläche und Logik
+- `src/build.py`: fügt beides zu `markt-radar.html` zusammen (eine Datei, die veröffentlicht wird)
+
+## Datenwege (getestet mit dem IBKR-Konto, September 2026)
+
+| Markt | Weg | Status |
+|---|---|---|
+| USA | SMART | Echtzeit |
+| Europa, Japan | SMART | verzögert |
+| Brasilien (B3), Mexiko (MEXI) | Heimatbörse, SMART wird abgelehnt | verzögert |
+| Korea, Australien | SMART | verzögert, außerhalb der Handelszeit Schlusskurs ohne Veränderung |
+
+Die App probiert zuerst SMART und dann die Heimatbörse. Den Weg, der funktioniert, merkt sie sich pro Aktie.
+Fehlt die Veränderung, berechnet sie diese aus den letzten Tagesschlusskursen.
+LSE-Kurse kommen in Pence (GBp).
+
+## Aktualisierung
+
+Eine Warteschlange mit drei Prioritäten:
+1. Detailansicht
+2. sichtbarer Markt, alle 60 s bei offener Börse, sonst alle 20 min
+3. übrige Märkte, alle 5 min bei offener Börse, sonst stündlich
+
+Es laufen maximal 4 Abrufe gleichzeitig, davon höchstens 1 im Hintergrund. Ist IBKR überlastet, pausiert die Warteschlange.
+Fehlt die Freigabe für IBKR, stoppt sie ganz. Ist der Tab verborgen, finden keine Abrufe statt.
