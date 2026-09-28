@@ -127,6 +127,14 @@
   .pill.up { background: var(--up-soft); } .pill.down { background: var(--down-soft); } .pill.flat { background: var(--surface-2); }
   .tag { font-size: 11px; color: var(--muted); white-space: nowrap; }
   .tag.warn { color: var(--warn); }
+  .why { margin: 0; font-size: 12.5px; color: var(--ink-2); display: flex; gap: 6px; align-items: baseline; }
+  .why::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; transform: translateY(-1px); }
+  .why.up::before { background: var(--up); } .why.down::before { background: var(--down); }
+  .why.flip { color: var(--ink); font-weight: 500; }
+  .whybox { border-left: 3px solid var(--line); padding: 2px 0 2px 14px; display: grid; gap: 10px; }
+  .whybox.up { border-color: var(--up); } .whybox.down { border-color: var(--down); }
+  .whybox ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+  .whybox li b { color: var(--ink); font-weight: 600; }
   .flash { animation: flash .9s ease-out; }
   @keyframes flash { from { background: #fff4d6; } to { background: transparent; } }
   @media (prefers-reduced-motion: reduce) { .flash { animation: none; } .card:hover, .mkt:hover { transform: none; } }
@@ -256,6 +264,10 @@
     <span class="big" id="d-last">–</span>
     <span class="pill" id="d-chg"></span>
     <span class="tag" id="d-status"></span>
+  </div>
+  <div class="d-sec">
+    <h4 id="w-title">Warum diese Farbe?</h4>
+    <div class="whybox" id="w-box"><ul id="w-points"></ul><p class="foot" id="w-note"></p></div>
   </div>
   <div class="d-sec">
     <h4>Worum es geht</h4>
@@ -856,6 +868,7 @@ window.MARKETS = [
     };
     return { ...m, items: [...m.top.map((e, i) => mk(e, i, 'top')), ...m.growth.map((e, i) => mk(e, i, 'growth'))] };
   });
+  for (const m of markets) for (const it of m.items) it.m = m; // point items at the full market (with its item list)
   const byKey = new Map(markets.flatMap((m) => m.items.map((it) => [it.key, it])));
   const conids = store.get('conids', {});
   const routes = store.get('routes', {});
@@ -1068,6 +1081,13 @@ window.MARKETS = [
       } catch { /* keep without change */ }
     }
     const old = quotes.get(it.key);
+    const d0 = dir(old?.pct), d1 = dir(q.pct);
+    if (old && d0 !== 'flat' && d1 !== 'flat' && d0 !== d1) {
+      const list = flips.get(it.key) || [];
+      list.push({ at: Date.now(), to: d1, price: q.last, prev: q.last - q.chg, c: context(it) });
+      flips.set(it.key, list.slice(-10));
+      if (openItem === it) loadIntraday(it);
+    }
     q.prevLast = old?.last;
     q.at = Date.now();
     slow = Math.max(1, slow * 0.97);
@@ -1147,7 +1167,7 @@ window.MARKETS = [
     renderStrip();
     renderSummary();
     renderList();
-    if (openItem) renderDrawerPrice();
+    if (openItem) { renderDrawerPrice(); renderWhy(); }
   }
 
   function marketStats(m, kind = 'top') {
@@ -1285,11 +1305,12 @@ window.MARKETS = [
     const pill = el('span', 'pill flat', '…');
     right.append(tag, pill);
     f.append(px, right);
-    b.append(h, name, desc, f);
+    const why = el('p', 'why', ' ');
+    b.append(h, name, desc, why, f);
     b.addEventListener('click', () => openDrawer(it));
     b.dataset.key = it.key;
     io.observe(b);
-    r = { b, px, tag, pill, last: NaN };
+    r = { b, px, tag, pill, why, last: NaN };
     cardEls.set(it.key, r);
     return r;
   }
@@ -1305,6 +1326,9 @@ window.MARKETS = [
     r.last = q.last;
     r.pill.className = 'pill ' + dir(q.pct);
     r.pill.textContent = arrow(q.pct) + fpct(q.pct);
+    const w = shortWhy(it, q);
+    r.why.className = 'why ' + dir(q.pct) + (w.flip ? ' flip' : '');
+    r.why.textContent = w.text;
     const delayed = /DELAYED/.test(q.status) && !/FROZEN/.test(q.status);
     const closed = q.isClose || /FROZEN/.test(q.status);
     const age = Date.now() - q.at;
@@ -1348,6 +1372,125 @@ window.MARKETS = [
     if (box.firstElementChild !== grid) box.replaceChildren(grid);
   }
 
+
+  // ---------------------------------------------------------------- why green / red
+  // Every statement here is derived from exchange prices delivered by IBKR:
+  // prior close, current price, peers in the same market and sector, intraday bars.
+  const flips = new Map();     // key -> observed direction changes while the app runs
+  const intraday = new Map();  // key -> { prev, crossings: [{ t, to }] } from 5-minute bars
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
+  const hm = (t) => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  function context(it) {
+    const pctOf = (x) => quotes.get(x.key)?.pct;
+    const mk = it.m.items.filter((x) => x !== it).map(pctOf).filter(Number.isFinite);
+    let sc = it.m.items.filter((x) => x !== it && x.sector === it.sector).map(pctOf).filter(Number.isFinite);
+    let scope = it.m.name;
+    if (sc.length < 2) {
+      sc = markets.flatMap((m) => m.items).filter((x) => x !== it && x.sector === it.sector).map(pctOf).filter(Number.isFinite);
+      scope = 'alle Märkte';
+    }
+    return { mAvg: mean(mk), mN: mk.length, mUp: mk.filter((p) => p > 0.005).length, sAvg: mean(sc), sN: sc.length, scope };
+  }
+  function kind(q, c) {
+    const d = dir(q.pct);
+    if (d === 'flat') return 'flat';
+    const same = (a, b) => Number.isFinite(a) && Math.abs(a) > 0.1 && Math.sign(a) === Math.sign(b);
+    const gap = q.pct - (Number.isFinite(c.mAvg) ? c.mAvg : 0);
+    if (Math.abs(q.pct) >= 3 && Math.abs(gap) >= 2.5) return 'own';
+    if (Number.isFinite(c.mAvg) && c.mN >= 5 && !same(c.mAvg, q.pct) && Math.abs(q.pct) >= 1) return 'against';
+    if (c.sN >= 2 && same(c.sAvg, q.pct) && Math.abs(c.sAvg) > Math.abs(c.mAvg || 0) + 0.5) return 'sector';
+    if (same(c.mAvg, q.pct)) return 'market';
+    return 'small';
+  }
+  function shortWhy(it, q) {
+    if (!Number.isFinite(q.pct)) return { text: '' };
+    const f = (flips.get(it.key) || []).slice(-1)[0];
+    if (f && Date.now() - f.at < 2 * 3600e3) return { flip: true, text: `Seit ${hm(f.at)} im ${f.to === 'up' ? 'Plus' : 'Minus'}, vorher im ${f.to === 'up' ? 'Minus' : 'Plus'}` };
+    const up = q.pct > 0;
+    const c = context(it);
+    switch (kind(q, c)) {
+      case 'flat': return { text: 'Unverändert zum Vortagesschluss' };
+      case 'own': return { text: up ? 'Deutlich stärker als der Markt' : 'Deutlich schwächer als der Markt' };
+      case 'against': return { text: up ? 'Steigt gegen den fallenden Markt' : 'Fällt gegen den steigenden Markt' };
+      case 'sector': return { text: up ? `Branche ${it.sector} stark` : `Branche ${it.sector} schwach` };
+      case 'market': return { text: up ? 'Steigt mit dem Gesamtmarkt' : 'Fällt mit dem Gesamtmarkt' };
+      default: return { text: up ? 'Leicht über Vortagesschluss' : 'Leicht unter Vortagesschluss' };
+    }
+  }
+  function loadIntraday(it) {
+    enqueue(0, 'i:' + it.key, async () => {
+      if (!it.id && !(await resolve(it))) return;
+      const p = await call('get_price_history', { contract_id: it.id, security_type: 'STK', exchange: routes[it.key] || it.listing, period: 'ONE_DAY', step: 'FIVE_MINS', outside_rth: false }, { staleTime: 60000, gcTime: 600000 });
+      const q = quotes.get(it.key);
+      if (!p?.time?.length || !q || !Number.isFinite(q.chg)) return;
+      const prev = q.last - q.chg;
+      const crossings = [];
+      let side = 0;
+      p.time.forEach((t, i) => {
+        const c = p.close[i];
+        const s2 = c > prev ? 1 : c < prev ? -1 : 0;
+        if (s2 && side && s2 !== side) crossings.push({ t: Date.parse(t), to: s2 > 0 ? 'up' : 'down', price: c });
+        if (s2) side = s2;
+      });
+      intraday.set(it.key, { prev, crossings, first: Date.parse(p.time[0]), bars: p.time.length });
+      if (openItem === it) renderWhy();
+    });
+  }
+  function renderWhy() {
+    const it = openItem, q = quotes.get(it.key);
+    const box = $('w-box'), ul = $('w-points'), note = $('w-note');
+    if (!q || !Number.isFinite(q.pct) || !Number.isFinite(q.last)) {
+      $('w-title').textContent = 'Warum diese Farbe?';
+      box.className = 'whybox';
+      ul.replaceChildren(el('li', null, it.missing ? 'Für dieses Wertpapier liefert IBKR keine Kurse.' : 'Warte auf Kursdaten…'));
+      note.textContent = '';
+      return;
+    }
+    const d = dir(q.pct), up = q.pct > 0, cur = CUR[it.country] || it.m.cur;
+    const prev = q.last - q.chg;
+    const c = context(it);
+    $('w-title').textContent = d === 'flat' ? 'Warum unverändert?' : `Warum heute ${up ? 'grün' : 'rot'}?`;
+    box.className = 'whybox ' + d;
+    const li = (html) => { const e = el('li'); e.append(...html); return e; };
+    const B = (t) => el('b', null, t);
+    const lines = [];
+    lines.push(li(d === 'flat'
+      ? ['Der Kurs von ', B(`${fp(q.last)} ${cur}`), ' entspricht dem offiziellen Schlusskurs des Vortags.']
+      : [up ? 'Grün, weil ' : 'Rot, weil ', 'der Kurs von ', B(`${fp(q.last)} ${cur}`), ` ${up ? 'über' : 'unter'} dem offiziellen Schlusskurs des Vortags (`, B(`${fp(prev)} ${cur}`), ') liegt: ', B(`${q.chg > 0 ? '+' : q.chg < 0 ? '−' : ''}${fp(Math.abs(q.chg))} ${cur} (${fpct(q.pct)})`), '.']));
+    if (c.mN >= 5) lines.push(li([`Gesamtmarkt ${it.m.name}: `, B(`${c.mUp} von ${c.mN}`), ' Werten im Plus, Durchschnitt ', B(fpct(c.mAvg)), '.']));
+    if (c.sN >= 2) lines.push(li([`Branche ${it.sector} (${c.scope}, ${c.sN} weitere Werte): Durchschnitt `, B(fpct(c.sAvg)), '.']));
+    const k = kind(q, c);
+    const verdicts = {
+      own: `Die Bewegung ist deutlich ${up ? 'stärker' : 'schwächer'} als Markt und Branche. Das deutet auf einen unternehmensspezifischen Auslöser hin, etwa Quartalszahlen, eine Prognose, eine Analystenbewertung oder eine Übernahmemeldung.`,
+      against: `${it.name} bewegt sich gegen den Gesamtmarkt. Der Grund liegt daher eher beim Unternehmen oder seiner Branche als bei der allgemeinen Marktstimmung.`,
+      sector: `Die ganze Branche ${up ? 'steigt' : 'fällt'} stärker als der Markt. ${it.name} folgt vor allem der Branchenbewegung.`,
+      market: `Die Bewegung passt zum Gesamtmarkt. Ein besonderer Unternehmensgrund ist aus den Kursdaten nicht erkennbar.`,
+      small: `Die Abweichung vom Vortag ist gering und liegt im Bereich normaler Tagesschwankungen.`,
+      flat: `Keine Veränderung zum Vortag.`,
+    };
+    lines.push(li([verdicts[k]]));
+    if (it.country === 'US') {
+      const x = ext.get(it.key);
+      if (x && Number.isFinite(x.adv) && Number.isFinite(q.vol) && x.adv > 0) {
+        const ratio = (q.vol * q.last) / x.adv;
+        if (ratio >= 1.5) lines.push(li(['Der Handelsumsatz liegt heute schon beim ', B(`${NF[1].format(ratio)}-fachen`), ' des 90-Tage-Durchschnitts. Hoher Umsatz begleitet meist neue Informationen.']));
+      }
+    }
+    const id = intraday.get(it.key);
+    if (id?.crossings.length) {
+      const lastX = id.crossings[id.crossings.length - 1];
+      lines.push(li(['Richtungswechsel heute: ', B(`${id.crossings.length}×`), '. Zuletzt zwischen ', B(`${hm(lastX.t)} und ${hm(lastX.t + 5 * 60e3)}`), ` ${lastX.to === 'up' ? 'über' : 'unter'} den Vortagesschluss (Kurs ${fp(lastX.price)} ${cur}).`]));
+    } else if (id && d !== 'flat' && !(flips.get(it.key) || []).length) {
+      lines.push(li([`Laut Tagesverlauf seit Handelsbeginn (${hm(id.first)}) durchgehend im ${up ? 'Plus' : 'Minus'}.`]));
+    }
+    const f = (flips.get(it.key) || []).slice(-1)[0];
+    if (f) {
+      const fc = f.c;
+      lines.push(li([`Von der App beobachtet: um ${hm(f.at)} Wechsel ins `, B(f.to === 'up' ? 'Plus' : 'Minus'), `. Zu diesem Zeitpunkt lag der Gesamtmarkt bei Ø ${fpct(fc.mAvg)}` + (fc.sN >= 2 ? `, die Branche bei Ø ${fpct(fc.sAvg)}.` : '.')]));
+    }
+    ul.replaceChildren(...lines);
+    note.textContent = `Quelle: offizielle Börsenkurse über Interactive Brokers${/DELAYED|FROZEN/.test(q.status) ? ' (ca. 15 Min. verzögert)' : ''}. Nachrichtenmeldungen sind noch nicht angebunden. Die konkrete Meldung hinter einer Bewegung kann die App deshalb noch nicht nennen.`;
+  }
   // ---------------------------------------------------------------- drawer
   function openDrawer(it) {
     openItem = it;
@@ -1358,6 +1501,7 @@ window.MARKETS = [
     refresh(it, 0);
     enqueue(0, 'x:' + it.key, () => fetchExt(it));
     loadHistory();
+    loadIntraday(it);
     $('d-close').focus();
   }
   function closeDrawer() {
@@ -1388,6 +1532,7 @@ window.MARKETS = [
     $('d-name').textContent = it.name;
     $('d-desc').textContent = it.desc;
     renderDrawerPrice();
+    renderWhy();
     const q = quotes.get(it.key) || {}, x = ext.get(it.key);
     const pts = $('d-points'), mets = $('d-metrics'), v = $('d-verdict');
     if (!x) { v.className = 'verdict flat'; v.textContent = 'Wird berechnet…'; pts.replaceChildren(); mets.replaceChildren(); return; }

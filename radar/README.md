@@ -44,3 +44,22 @@ Jede Karte zeigt das Alter ihres Kurses und „veraltet“, wenn es das Doppelte
 Es laufen maximal 4 Abrufe parallel, davon 1 für den Hintergrund. Ohne IBKR-Freigabe stoppt die Schleife. Ist der Tab verborgen, ruht sie.
 
 Grenze: „Aktuell“ heißt aktuell abgerufen. Ob ein Kurs Echtzeit oder ca. 15 Min. verzögert ist, bestimmt das Marktdaten-Abo im IBKR-Konto.
+
+## Warum grün, warum rot?
+
+Jede Karte zeigt einen Grund in einer Zeile. Die Detailansicht erklärt ihn ausführlich. Alles beruht auf Börsenkursen von IBKR:
+
+- **Definition:** Grün oder Rot hängt davon ab, ob der Kurs über oder unter dem offiziellen Schlusskurs des Vortags liegt. Angegeben mit beiden Kursen und der Differenz.
+- **Markt und Branche:** wie viele Werte im selben Markt steigen, dazu der Durchschnitt der Branche.
+- **Einordnung:**
+  - mit dem Markt
+  - Branche stark oder schwach
+  - gegen den Markt
+  - deutlich stärker oder schwächer als der Markt, was auf einen unternehmensspezifischen Auslöser hindeutet
+- **Umsatz (nur USA):** Vielfaches des 90-Tage-Durchschnitts.
+- **Richtungswechsel:**
+  - aus den 5-Minuten-Kerzen des Tages, mit Zeitfenster und Kurs
+  - von der App beobachtet, samt Markt- und Branchenlage im Moment des Wechsels
+
+Nachrichten sind nicht angebunden. Die konkrete Meldung hinter einer Bewegung nennt die App deshalb nicht.
+Vorgesehen ist ein Nachrichten-Connector (z. B. MT Newswires), sobald er verbunden ist.
