@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Live-Markt-Terminal im Stil eines Bloomberg Terminals. Krypto 24/7 über Binance, optional US-Aktien über Finnhub.">
+  <title>MKT Terminal</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M2 12h2V7H2zm4 0h2V3H6zm4 0h2V9h-2z' fill='%23ffa028'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/terminal.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner" hidden>DEMO-MODUS · SIMULIERTE DATEN · KEINE ECHTEN MARKTPREISE · <button type="button" data-cmd="LIVE">LIVE SCHALTEN</button></div>
+
+  <header class="top">
+    <div class="brand"><span class="brand-mark">MKT</span><span class="brand-sub">TERMINAL</span></div>
+    <form id="cmd-form" class="cmd" autocomplete="off">
+      <label for="cmd" class="visually-hidden">Befehl</label>
+      <input id="cmd" class="cmd-input" spellcheck="false" autocapitalize="characters" placeholder="BTC &lt;GO&gt; · AAPL US &lt;GO&gt; · GP 1H · HELP">
+      <button class="go" type="submit">&lt;GO&gt;</button>
+    </form>
+    <div id="clocks" class="clocks" aria-label="Weltzeit"></div>
+  </header>
+
+  <nav class="fkeys" aria-label="Funktionen">
+    <button type="button" data-cmd="HELP"><kbd>F1</kbd>HELP</button>
+    <button type="button" data-cmd="WEI"><kbd>F2</kbd>MON</button>
+    <button type="button" data-cmd="GP"><kbd>F3</kbd>GP</button>
+    <button type="button" data-cmd="BOOK"><kbd>F4</kbd>BOOK</button>
+    <button type="button" data-cmd="TAPE">TAPE</button>
+    <button type="button" data-cmd="MOST"><kbd>F6</kbd>MOST</button>
+    <button type="button" data-cmd="N"><kbd>F7</kbd>NEWS</button>
+    <button type="button" data-cmd="MKT"><kbd>F8</kbd>MKT</button>
+    <button type="button" data-cmd="LP" class="k-green">LP</button>
+    <button type="button" data-cmd="KIOSK" class="k-red">KIOSK</button>
+    <span id="msg" class="msg" role="status" aria-live="polite"></span>
+  </nav>
+
+  <main id="grid" class="grid">
+    <section class="panel p-mon" data-panel="mon">
+      <h2 class="ph"><span class="pn">1)</span> MON <span class="pt">Monitor</span></h2>
+      <div class="pb scroll">
+        <table class="tbl mon">
+          <thead><tr><th>Wertpapier</th><th class="r">Last</th><th class="r">Δ%</th><th class="r hide-s">Hoch</th><th class="r hide-s">Tief</th><th class="r">Vol $</th></tr></thead>
+          <tbody id="mon-crypto"></tbody>
+          <tbody id="mon-eq"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel p-gp" data-panel="gp">
+      <h2 class="ph"><span class="pn">2)</span> GP <span id="gp-title" class="pt">—</span>
+        <span id="gp-iv" class="ivs"></span>
+      </h2>
+      <div class="gp-head">
+        <span id="gp-last" class="big">—</span>
+        <span id="gp-chg" class="chg">—</span>
+        <span id="gp-read" class="read"></span>
+      </div>
+      <div class="pb chart-wrap"><canvas id="chart"></canvas><div id="gp-note" class="note" hidden></div></div>
+    </section>
+
+    <section class="panel p-most" data-panel="most">
+      <h2 class="ph"><span class="pn">3)</span> MOST <span class="pt">Top-Bewegungen 24h · USDT · Vol &gt; 5 Mio $</span></h2>
+      <div class="pb scroll">
+        <table class="tbl"><thead><tr><th>Gewinner</th><th class="r">Last</th><th class="r">Δ%</th></tr></thead><tbody id="most-up"></tbody></table>
+        <table class="tbl"><thead><tr><th>Verlierer</th><th class="r">Last</th><th class="r">Δ%</th></tr></thead><tbody id="most-down"></tbody></table>
+        <p id="most-ts" class="foot"></p>
+      </div>
+    </section>
+
+    <section class="panel p-news" data-panel="news">
+      <h2 class="ph"><span class="pn">4)</span> N <span class="pt">Nachrichten</span></h2>
+      <div id="news" class="pb scroll news"></div>
+    </section>
+
+    <section class="panel p-book" data-panel="book">
+      <h2 class="ph"><span class="pn">5)</span> BOOK <span id="book-title" class="pt">Orderbuch</span></h2>
+      <div class="pb scroll"><table class="tbl book"><thead><tr><th class="r">Preis</th><th class="r">Menge</th><th class="r">Kum.</th></tr></thead><tbody id="book"></tbody></table></div>
+    </section>
+
+    <section class="panel p-tape" data-panel="tape">
+      <h2 class="ph"><span class="pn">6)</span> TAPE <span id="tape-title" class="pt">Time &amp; Sales</span></h2>
+      <div class="pb scroll"><table class="tbl"><thead><tr><th>Zeit</th><th class="r">Preis</th><th class="r">Menge</th></tr></thead><tbody id="tape"></tbody></table></div>
+    </section>
+
+    <section class="panel p-mkt" data-panel="mkt">
+      <h2 class="ph"><span class="pn">7)</span> MKT <span class="pt">Sessions · Sentiment · FX</span></h2>
+      <div class="pb scroll">
+        <table class="tbl"><tbody id="sessions"></tbody></table>
+        <div id="fng" class="fng"></div>
+        <table class="tbl"><thead><tr><th>FX (EZB-Referenz)</th><th class="r">Kurs</th></tr></thead><tbody id="fx"></tbody></table>
+        <p id="fx-ts" class="foot"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="status">
+    <span id="st-binance" class="st">BINANCE <b>○</b> AUS</span>
+    <span id="st-finnhub" class="st">FINNHUB <b>○</b> AUS</span>
+    <span id="st-rate" class="st">0 msg/s</span>
+    <span class="st grow">Daten: Binance · Finnhub · EZB via Frankfurter · alternative.me. Kein Bloomberg-Produkt. Keine Anlageberatung.</span>
+  </footer>
+
+  <dialog id="help" class="help">
+    <h2>HELP · Befehle</h2>
+    <table class="tbl">
+      <tbody>
+        <tr><td><code>BTC</code> <code>ETH</code> <code>SOLUSDT</code></td><td>Krypto-Wert laden (ohne Quote wird USDT angehängt)</td></tr>
+        <tr><td><code>AAPL US</code> <code>MSFT EQUITY</code></td><td>US-Aktie laden (benötigt Finnhub-Key)</td></tr>
+        <tr><td><code>GP 1M|5M|15M|1H|4H|1D</code></td><td>Chart, optional mit Intervall</td></tr>
+        <tr><td><code>WEI</code> <code>MON</code></td><td>Monitor maximieren</td></tr>
+        <tr><td><code>BOOK</code> <code>TAPE</code> <code>MOST</code> <code>MKT</code> <code>N</code></td><td>Panel maximieren</td></tr>
+        <tr><td><code>LP</code> oder <kbd>Esc</kbd></td><td>Zurück zum Launchpad (alle Panels)</td></tr>
+        <tr><td><code>ADD LINK</code> · <code>DEL LINK</code> · <code>ADD NVDA US</code></td><td>Watchlist bearbeiten</td></tr>
+        <tr><td><code>KEY &lt;token&gt;</code> · <code>KEY CLEAR</code></td><td>Kostenlosen Finnhub-Key setzen (nur lokal gespeichert)</td></tr>
+        <tr><td><code>KIOSK</code></td><td>Vollbild + Bildschirm wach halten (24/7-Display)</td></tr>
+        <tr><td><code>DEMO</code> · <code>LIVE</code></td><td>Simulierte Daten · echte Daten</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Befehlsverlauf</td></tr>
+      </tbody>
+    </table>
+    <form method="dialog"><button class="go">SCHLIESSEN</button></form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
