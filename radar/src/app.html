@@ -135,6 +135,11 @@
   .whybox.up { border-color: var(--up); } .whybox.down { border-color: var(--down); }
   .whybox ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
   .whybox li b { color: var(--ink); font-weight: 600; }
+  .links { display: grid; gap: 8px; }
+  .links a { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; background: var(--surface); }
+  .links a:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .links a span { font-size: 12px; color: var(--muted); }
+  .links a b { font-weight: 600; font-size: 14px; }
   .flash { animation: flash .9s ease-out; }
   @keyframes flash { from { background: #fff4d6; } to { background: transparent; } }
   @media (prefers-reduced-motion: reduce) { .flash { animation: none; } .card:hover, .mkt:hover { transform: none; } }
@@ -268,6 +273,11 @@
   <div class="d-sec">
     <h4 id="w-title">Warum diese Farbe?</h4>
     <div class="whybox" id="w-box"><ul id="w-points"></ul><p class="foot" id="w-note"></p></div>
+  </div>
+  <div class="d-sec">
+    <h4>Meldungen prüfen</h4>
+    <div class="links" id="d-links"></div>
+    <span class="foot">Öffnet die Quelle in einem neuen Tab. So prüfst du die konkrete Nachricht hinter einer Bewegung selbst.</span>
   </div>
   <div class="d-sec">
     <h4>Worum es geht</h4>
@@ -924,6 +934,7 @@
       flat: `Keine Veränderung zum Vortag.`,
     };
     lines.push(li([verdicts[k]]));
+    if (k === 'own' || k === 'against' || (flips.get(it.key) || []).length) lines.push(li(['Die konkrete Meldung prüfst du unten unter ', B('Meldungen prüfen'), '.']));
     if (it.country === 'US') {
       const x = ext.get(it.key);
       if (x && Number.isFinite(x.adv) && Number.isFinite(q.vol) && x.adv > 0) {
@@ -944,7 +955,28 @@
       lines.push(li([`Von der App beobachtet: um ${hm(f.at)} Wechsel ins `, B(f.to === 'up' ? 'Plus' : 'Minus'), `. Zu diesem Zeitpunkt lag der Gesamtmarkt bei Ø ${fpct(fc.mAvg)}` + (fc.sN >= 2 ? `, die Branche bei Ø ${fpct(fc.sAvg)}.` : '.')]));
     }
     ul.replaceChildren(...lines);
-    note.textContent = `Quelle: offizielle Börsenkurse über Interactive Brokers${/DELAYED|FROZEN/.test(q.status) ? ' (ca. 15 Min. verzögert)' : ''}. Nachrichtenmeldungen sind noch nicht angebunden. Die konkrete Meldung hinter einer Bewegung kann die App deshalb noch nicht nennen.`;
+    note.textContent = `Quelle: offizielle Börsenkurse über Interactive Brokers${/DELAYED|FROZEN/.test(q.status) ? ' (ca. 15 Min. verzögert)' : ''}. Nachrichten sind nicht automatisch angebunden, die Quellen darunter führen zu den Meldungen.`;
+  }
+
+  // ---------------------------------------------------------------- official sources (free link-outs)
+  const YSUF = { DE: '.DE', FR: '.PA', NL: '.AS', ES: '.MC', IT: '.MI', CH: '.SW', GB: '.L', DK: '.CO', SE: '.ST', NO: '.OL', FI: '.HE', JP: '.T', AU: '.AX', MX: '.MX', BR: '.SA' };
+  function yahooSymbol(it) {
+    const base = (it.country === 'MX' && it.ibSym ? it.ibSym : it.t).replace(/\s+/g, '-');
+    if (it.country === 'US') return base;
+    if (it.country === 'KR') return base + (/KOSDAQ/i.test(it.listing || '') ? '.KQ' : '.KS');
+    return base + (YSUF[it.country] || '');
+  }
+  function renderLinks(it) {
+    const box = $('d-links');
+    const a = (href, title, sub) => { const e = el('a'); e.href = href; e.target = '_blank'; e.rel = 'noopener noreferrer'; e.append(el('b', null, title), el('span', null, sub)); return e; };
+    const items = [];
+    if (it.country === 'US') {
+      items.push(a(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${encodeURIComponent(it.t.replace(' ', '-'))}&type=8-K&dateb=&owner=include&count=40`, 'Pflichtmitteilungen (SEC, Form 8-K)', 'offizielle Quelle · US-Börsenaufsicht'));
+    }
+    items.push(a(`https://news.google.com/search?q=${encodeURIComponent(`"${it.name}" Aktie`)}&hl=de&gl=DE&ceid=DE:de`, `Aktuelle Nachrichten zu ${it.name}`, 'Google News · deutsch'));
+    items.push(a(`https://news.google.com/search?q=${encodeURIComponent(`"${it.name}" stock`)}&hl=en-US&gl=US&ceid=US:en`, 'Internationale Nachrichten', 'Google News · englisch'));
+    items.push(a(`https://finance.yahoo.com/quote/${encodeURIComponent(yahooSymbol(it))}/news/`, 'Kursseite mit Meldungen', 'Yahoo Finance'));
+    box.replaceChildren(...items);
   }
   // ---------------------------------------------------------------- drawer
   function openDrawer(it) {
@@ -988,6 +1020,7 @@
     $('d-desc').textContent = it.desc;
     renderDrawerPrice();
     renderWhy();
+    renderLinks(it);
     const q = quotes.get(it.key) || {}, x = ext.get(it.key);
     const pts = $('d-points'), mets = $('d-metrics'), v = $('d-verdict');
     if (!x) { v.className = 'verdict flat'; v.textContent = 'Wird berechnet…'; pts.replaceChildren(); mets.replaceChildren(); return; }

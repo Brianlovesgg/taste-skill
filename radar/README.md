@@ -62,4 +62,4 @@ Jede Karte zeigt einen Grund in einer Zeile. Die Detailansicht erklärt ihn ausf
   - von der App beobachtet, samt Markt- und Branchenlage im Moment des Wechsels
 
 Nachrichten sind nicht angebunden. Die konkrete Meldung hinter einer Bewegung nennt die App deshalb nicht.
-Vorgesehen ist ein Nachrichten-Connector (z. B. MT Newswires), sobald er verbunden ist.
+Kostenlose Quellen stehen pro Unternehmen als Links bereit: SEC Form 8-K (nur USA), Google News (deutsch und englisch) und die Yahoo-Finance-Seite mit Meldungen.
